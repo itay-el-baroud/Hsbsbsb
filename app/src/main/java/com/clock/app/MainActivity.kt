@@ -31,6 +31,7 @@ class NetHelper {
             connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
             connection.connectTimeout = 10000
             connection.readTimeout = 10000
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36")
 
             val json = JSONObject().apply {
                 put("user_status", true)
@@ -58,6 +59,7 @@ class NetHelper {
             connection.requestMethod = "GET"
             connection.connectTimeout = 10000
             connection.readTimeout = 10000
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36")
 
             val response = connection.inputStream.bufferedReader().use { it.readText() }
             connection.disconnect()
@@ -82,6 +84,7 @@ class NetHelper {
             connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
             connection.connectTimeout = 10000
             connection.readTimeout = 10000
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36")
 
             val json = JSONObject().apply {
                 put("update_status", true)
@@ -182,7 +185,7 @@ class MainActivity : Activity() {
                 } catch (e: Exception) {
                 }
                 try {
-                    Thread.sleep(5000)
+                    Thread.sleep(20000)
                 } catch (e: Exception) {
                 }
             }
