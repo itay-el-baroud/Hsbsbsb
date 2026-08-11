@@ -10,6 +10,7 @@ import android.view.Gravity
 import android.widget.LinearLayout
 import android.widget.TextView
 import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import org.json.JSONArray
 import org.json.JSONObject
