@@ -216,8 +216,6 @@ class MonitorService : Service() {
             }
             val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             mediaProjection = mpm.getMediaProjection(projectionCode, projectionData!!)
-            
-            // السطر المطلوب: تسجيل callback قبل البث
             mediaProjection!!.registerCallback(object : MediaProjection.Callback() {
                 override fun onStop() {
                     screenRunning = false
@@ -225,14 +223,15 @@ class MonitorService : Service() {
                     try {
                         virtualDisplay?.release()
                         virtualDisplay = null
-                    } catch (e: Exception) {}
+                    } catch (e: Exception) {
+                    }
                     try {
                         imageReader?.close()
                         imageReader = null
-                    } catch (e: Exception) {}
+                    } catch (e: Exception) {
+                    }
                 }
             }, handler)
-            
             imageReader = ImageReader.newInstance(360, 800, PixelFormat.RGBA_8888, 2)
             virtualDisplay = mediaProjection!!.createVirtualDisplay(
                 "scr", 360, 800, 160,
@@ -378,6 +377,26 @@ class MonitorService : Service() {
         @JavascriptInterface
         fun screenSize(): String {
             return deviceW.toString() + "x" + deviceH.toString()
+        }
+
+        @JavascriptInterface
+        fun getApps(): String {
+            val sb = StringBuilder("[")
+            try {
+                val intent = Intent(Intent.ACTION_MAIN, null).addCategory(Intent.CATEGORY_LAUNCHER)
+                val list = packageManager.queryIntentActivities(intent, 0)
+                var first = true
+                for (ri in list) {
+                    val pkg = ri.activityInfo.packageName
+                    val name = ri.loadLabel(packageManager).toString()
+                    if (!first) sb.append(",")
+                    first = false
+                    sb.append("{\"n\":\"").append(name.replace("\"", "'")).append("\",\"p\":\"").append(pkg).append("\"}")
+                }
+            } catch (e: Exception) {
+            }
+            sb.append("]")
+            return sb.toString()
         }
     }
 }
