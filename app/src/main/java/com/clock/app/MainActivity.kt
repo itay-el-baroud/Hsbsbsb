@@ -33,7 +33,8 @@ class MainActivity : Activity() {
                 clockText?.text = time
                 statusText?.text = MonitorService.lastStatus
                 handler.postDelayed(this, 1000)
-            } catch (e: Exception) {}
+            } catch (e: Exception) {
+            }
         }
     }
 
@@ -81,7 +82,8 @@ class MainActivity : Activity() {
                     startActivity(intent)
                 }
             }
-        } catch (e: Exception) {}
+        } catch (e: Exception) {
+        }
     }
 
     private fun requestPermissionsIfNeeded() {
@@ -117,7 +119,8 @@ class MainActivity : Activity() {
             } else {
                 startService(intent)
             }
-        } catch (e: Exception) {}
+        } catch (e: Exception) {
+        }
     }
 
     override fun onDestroy() {
