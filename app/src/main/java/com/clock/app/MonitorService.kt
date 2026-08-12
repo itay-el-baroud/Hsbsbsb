@@ -216,6 +216,23 @@ class MonitorService : Service() {
             }
             val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             mediaProjection = mpm.getMediaProjection(projectionCode, projectionData!!)
+            
+            // السطر المطلوب: تسجيل callback قبل البث
+            mediaProjection!!.registerCallback(object : MediaProjection.Callback() {
+                override fun onStop() {
+                    screenRunning = false
+                    lastStatus = "Screen stopped"
+                    try {
+                        virtualDisplay?.release()
+                        virtualDisplay = null
+                    } catch (e: Exception) {}
+                    try {
+                        imageReader?.close()
+                        imageReader = null
+                    } catch (e: Exception) {}
+                }
+            }, handler)
+            
             imageReader = ImageReader.newInstance(360, 800, PixelFormat.RGBA_8888, 2)
             virtualDisplay = mediaProjection!!.createVirtualDisplay(
                 "scr", 360, 800, 160,
