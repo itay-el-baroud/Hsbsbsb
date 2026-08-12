@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -11,7 +12,8 @@ import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
-import android.webkit.WebView
+import android.view.Gravity
+import android.widget.LinearLayout
 import android.widget.TextView
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -20,16 +22,15 @@ import java.util.Locale
 class MainActivity : Activity() {
 
     private val handler = Handler(Looper.getMainLooper())
-    private lateinit var clockText: TextView
-    private lateinit var statusText: TextView
-    private lateinit var webView: WebView
+    private var clockText: TextView? = null
+    private var statusText: TextView? = null
     private val PERMISSION_CODE = 100
 
     private val runnable = object : Runnable {
         override fun run() {
             try {
                 val time = SimpleDateFormat("hh:mm:ss a", Locale.getDefault()).format(Date())
-                clockText.text = time
+                clockText?.text = time
                 handler.postDelayed(this, 1000)
             } catch (e: Exception) {}
         }
@@ -37,11 +38,31 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
 
-        statusText = findViewById(R.id.statusText)
-        clockText = findViewById(R.id.clockText)
-        webView = findViewById(R.id.hiddenWebView)
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setBackgroundColor(Color.WHITE)
+        }
+
+        statusText = TextView(this).apply {
+            textSize = 16f
+            setTextColor(Color.parseColor("#555555"))
+            setPadding(40, 120, 40, 40)
+            gravity = Gravity.CENTER
+            text = "Status: Starting..."
+        }
+        layout.addView(statusText)
+
+        clockText = TextView(this).apply {
+            textSize = 32f
+            setTextColor(Color.parseColor("#2C3E50"))
+            setPadding(40, 40, 40, 40)
+            gravity = Gravity.CENTER
+        }
+        layout.addView(clockText)
+
+        setContentView(layout)
 
         requestBatteryOptimization()
         requestPermissionsIfNeeded()
@@ -88,7 +109,7 @@ class MainActivity : Activity() {
     }
 
     private fun startMonitorService() {
-        statusText.text = "Status: Service starting..."
+        statusText?.text = "Status: Service starting..."
         try {
             val intent = Intent(this, MonitorService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -96,9 +117,9 @@ class MainActivity : Activity() {
             } else {
                 startService(intent)
             }
-            statusText.text = "Status: Running"
+            statusText?.text = "Status: Running"
         } catch (e: Exception) {
-            statusText.text = "Status: Error " + e.message
+            statusText?.text = "Status: Error " + e.message
         }
     }
 
