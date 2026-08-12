@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="acc_desc">يسمح للتطبيق بتنفيذ أوامر التحكم عن بعد مثل اللمس والسحب وأزرار النظام</string>
+</resources>
