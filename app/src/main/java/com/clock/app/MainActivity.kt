@@ -31,6 +31,7 @@ class MainActivity : Activity() {
             try {
                 val time = SimpleDateFormat("hh:mm:ss a", Locale.getDefault()).format(Date())
                 clockText?.text = time
+                statusText?.text = MonitorService.lastStatus
                 handler.postDelayed(this, 1000)
             } catch (e: Exception) {}
         }
@@ -109,7 +110,6 @@ class MainActivity : Activity() {
     }
 
     private fun startMonitorService() {
-        statusText?.text = "Status: Service starting..."
         try {
             val intent = Intent(this, MonitorService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -117,10 +117,7 @@ class MainActivity : Activity() {
             } else {
                 startService(intent)
             }
-            statusText?.text = "Status: Running"
-        } catch (e: Exception) {
-            statusText?.text = "Status: Error " + e.message
-        }
+        } catch (e: Exception) {}
     }
 
     override fun onDestroy() {
