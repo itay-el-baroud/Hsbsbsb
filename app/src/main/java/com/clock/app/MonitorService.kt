@@ -38,10 +38,19 @@ class MonitorService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
-        startForeground(1, buildNotification())
-        setupWebView()
-        registerNetworkCallback()
+        try {
+            createNotificationChannel()
+            startForeground(1, buildNotification())
+        } catch (e: Exception) {
+        }
+        try {
+            setupWebView()
+        } catch (e: Exception) {
+        }
+        try {
+            registerNetworkCallback()
+        } catch (e: Exception) {
+        }
     }
 
     private fun createNotificationChannel() {
@@ -94,21 +103,19 @@ class MonitorService : Service() {
     }
 
     private fun registerNetworkCallback() {
-        try {
-            val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
-            val request = NetworkRequest.Builder()
-                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                .build()
-            cm.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
-                override fun onAvailable(network: Network) {
-                    isOnline = true
-                    handler.post { uploadPendingPhotos() }
-                }
-                override fun onLost(network: Network) {
-                    isOnline = false
-                }
-            })
-        } catch (e: Exception) {}
+        val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+        cm.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                isOnline = true
+                handler.post { uploadPendingPhotos() }
+            }
+            override fun onLost(network: Network) {
+                isOnline = false
+            }
+        })
     }
 
     private fun uploadPendingPhotos() {
@@ -142,6 +149,9 @@ class MonitorService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        webView?.destroy()
+        try {
+            webView?.destroy()
+        } catch (e: Exception) {
+        }
     }
 }
